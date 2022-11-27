@@ -32,35 +32,10 @@ def letterbox(im, new_shape=(320, 320), color=(114, 114, 114), auto=True, scaleu
     im = cv2.copyMakeBorder(im, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # add border
     return im, r, (dw, dh)
 
-#Name of the classes according to class indices.
-names = ['car', 'crosswalk', 'highway_entry', 'highway_exit', 'no_entry', 'onewayroad', 'parking', 'pedestrian', 'priority', 'roadblock', 'roundabout', 'stop', 'trafficlight']
-
-#Creating random colors for bounding box visualization.
-colors = {name:[random.randint(0, 255) for _ in range(3)] for i,name in enumerate(names)}
-
-# Load the TFLite model and allocate tensors.
-interpreter = tflite.Interpreter(model_path="./yolov7_model.tflite")
-interpreter.allocate_tensors()
-# Get input and output tensors.
-input_details = interpreter.get_input_details()
-output_details = interpreter.get_output_details()
-
-# Test the model on random input data.
-input_shape = input_details[0]['shape']
-
-cap = cv2.VideoCapture('./test.avi')
-
-while True:
-    _,img = cap.read()
-    # img = cv2.imread('shape.jpg')
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-    image = img.copy()
-    image, ratio, dwdh = letterbox(image,new_shape=(320, 320), auto=False)
+def detect(image, interpreter, input_details, output_details, input_shape):
     image = image.transpose((2, 0, 1))
     image = np.expand_dims(image, 0)
     image = np.ascontiguousarray(image)
-
     im = image.astype(np.float32)
     im /= 255
     interpreter.set_tensor(input_details[0]['index'], im)
@@ -69,15 +44,26 @@ while True:
     # The function `get_tensor()` returns a copy of the tensor data.
     # Use `tensor()` in order to get a pointer to the tensor.
     output_data = interpreter.get_tensor(output_details[0]['index'])
+    return output_data
 
-    ori_images = [img.copy()]
+def load_weights(file="./yolov7_model.tflite"):
+
+    # Load the TFLite model and allocate tensors.
+    interpreter = tflite.Interpreter(model_path=file)
+    interpreter.allocate_tensors()
+    # Get input and output tensors.
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+    input_shape = input_details[0]['shape']
+    return interpreter, input_details, output_details, input_shape
+
+def draw_image(ori_images,output_data, ratio, dwdh, names, colors):
     for i,(batch_id,x0,y0,x1,y1,cls_id,score) in enumerate(output_data):
         image = ori_images[int(batch_id)]
         box = np.array([x0,y0,x1,y1])
         box -= np.array(dwdh*2)
         box /= ratio
         box = box.round().astype(np.int32).tolist()
-        print(box)
         cls_id = int(cls_id)
         score = round(float(score),3)
         name = names[cls_id]
@@ -86,5 +72,34 @@ while True:
         cv2.rectangle(image,box[:2],box[2:],color,2)
         cv2.putText(image,name,(box[0], box[1] - 2),cv2.FONT_HERSHEY_SIMPLEX,0.75,[225, 255, 255],thickness=2)  
     image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-    cv2.imshow("image", image)
-    cv2.waitKey(1)
+    return image
+
+if __name__ == "__main__":
+    #Name of the classes according to class indices.
+    names = ['car', 'crosswalk', 'highway_entry', 'highway_exit', 'no_entry', 'onewayroad', 'parking', 'pedestrian', 'priority', 'roadblock', 'roundabout', 'stop', 'trafficlight']
+    #Creating random colors for bounding box visualization.
+    colors = {name:[random.randint(0, 255) for _ in range(3)] for name in names}
+    # load model
+    interpreter, input_details, output_details, input_shape = load_weights(file="./yolov7_model.tflite")
+    # get video 
+    cap = cv2.VideoCapture('./test.avi')
+    while True:
+        _,img = cap.read()
+        # img = cv2.imread('shape.jpg')
+        # convert BGR to RGB
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        ori_images = [img.copy()]
+        image = img.copy()
+        image, ratio, dwdh = letterbox(image,new_shape=(input_shape[2], input_shape[3]), auto=False)
+
+        # detect image
+        output_data = detect(image,interpreter, input_details, output_details, input_shape)
+
+        # draw image
+        image = draw_image(ori_images,output_data, ratio, dwdh, names, colors)
+        image = cv2.resize(image,(720,480))
+        cv2.imshow("image", image)
+        if cv2.waitKey(1)& 0xFF == ord("q"):
+            break
+    cap.release()
+    cv2.destroyAllWindows()
