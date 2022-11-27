@@ -64,7 +64,6 @@ while True:
     im = image.astype(np.float32)
     im /= 255
     interpreter.set_tensor(input_details[0]['index'], im)
-
     interpreter.invoke()
 
     # The function `get_tensor()` returns a copy of the tensor data.
